@@ -15,7 +15,7 @@ pub use prompt_cache::{
     PromptCacheStats,
 };
 pub use providers::anthropic::{AnthropicClient, AnthropicClient as ApiClient, AuthSource};
-pub use providers::openai_compat::{OpenAiCompatClient, OpenAiCompatConfig};
+pub use providers::openai_compat::{has_ollama_endpoint, OpenAiCompatClient, OpenAiCompatConfig};
 pub use providers::{
     detect_provider_kind, max_tokens_for_model, resolve_model_alias, ProviderKind,
 };

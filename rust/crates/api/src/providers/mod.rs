@@ -32,6 +32,12 @@ pub enum ProviderKind {
     Anthropic,
     Xai,
     OpenAi,
+    /// A locally-running [Ollama](https://ollama.com) instance.
+    ///
+    /// Ollama exposes an OpenAI-compatible API at `http://localhost:11434/v1` by
+    /// default and does not require an API key, making it suitable for fully
+    /// offline / standalone operation.
+    Ollama,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +127,62 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
         },
     ),
+    // Ollama short-hand aliases – these resolve to the bare model name so that the
+    // actual Ollama model tag (e.g. "llama3.2") is passed through unchanged.
+    (
+        "ollama",
+        ProviderMetadata {
+            provider: ProviderKind::Ollama,
+            auth_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: openai_compat::DEFAULT_OLLAMA_BASE_URL,
+        },
+    ),
+    (
+        "llama3",
+        ProviderMetadata {
+            provider: ProviderKind::Ollama,
+            auth_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: openai_compat::DEFAULT_OLLAMA_BASE_URL,
+        },
+    ),
+    (
+        "mistral",
+        ProviderMetadata {
+            provider: ProviderKind::Ollama,
+            auth_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: openai_compat::DEFAULT_OLLAMA_BASE_URL,
+        },
+    ),
+    (
+        "phi",
+        ProviderMetadata {
+            provider: ProviderKind::Ollama,
+            auth_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: openai_compat::DEFAULT_OLLAMA_BASE_URL,
+        },
+    ),
+    (
+        "gemma",
+        ProviderMetadata {
+            provider: ProviderKind::Ollama,
+            auth_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: openai_compat::DEFAULT_OLLAMA_BASE_URL,
+        },
+    ),
+    (
+        "qwen",
+        ProviderMetadata {
+            provider: ProviderKind::Ollama,
+            auth_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: openai_compat::DEFAULT_OLLAMA_BASE_URL,
+        },
+    ),
 ];
 
 #[must_use]
@@ -143,7 +205,7 @@ pub fn resolve_model_alias(model: &str) -> String {
                     "grok-2" => "grok-2",
                     _ => trimmed,
                 },
-                ProviderKind::OpenAi => trimmed,
+                ProviderKind::OpenAi | ProviderKind::Ollama => trimmed,
             })
         })
         .map_or_else(|| trimmed.to_string(), ToOwned::to_owned)
@@ -168,6 +230,18 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
         });
     }
+    // Models routed through the short-hand registry entries that map to Ollama.
+    if MODEL_REGISTRY
+        .iter()
+        .any(|(alias, meta)| *alias == canonical.as_str() && meta.provider == ProviderKind::Ollama)
+    {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::Ollama,
+            auth_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: openai_compat::DEFAULT_OLLAMA_BASE_URL,
+        });
+    }
     None
 }
 
@@ -185,7 +259,9 @@ pub fn detect_provider_kind(model: &str) -> ProviderKind {
     if openai_compat::has_api_key("XAI_API_KEY") {
         return ProviderKind::Xai;
     }
-    ProviderKind::Anthropic
+    // Fall back to a locally-running Ollama instance so the tool works fully
+    // offline without any API keys.
+    ProviderKind::Ollama
 }
 
 #[must_use]
@@ -373,5 +449,22 @@ mod tests {
 
         preflight_message_request(&request)
             .expect("models without context metadata should skip the guarded preflight");
+    }
+
+    #[test]
+    fn detects_ollama_for_known_local_model_aliases() {
+        assert_eq!(detect_provider_kind("llama3"), ProviderKind::Ollama);
+        assert_eq!(detect_provider_kind("mistral"), ProviderKind::Ollama);
+        assert_eq!(detect_provider_kind("phi"), ProviderKind::Ollama);
+        assert_eq!(detect_provider_kind("gemma"), ProviderKind::Ollama);
+        assert_eq!(detect_provider_kind("qwen"), ProviderKind::Ollama);
+    }
+
+    #[test]
+    fn resolves_ollama_alias_to_bare_model_name() {
+        // The "ollama" alias passes the token through unchanged so the model tag
+        // reaches the Ollama server as-is.
+        assert_eq!(resolve_model_alias("ollama"), "ollama");
+        assert_eq!(resolve_model_alias("llama3"), "llama3");
     }
 }

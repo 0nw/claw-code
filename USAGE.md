@@ -19,10 +19,17 @@ cargo build --workspace
 ## Prerequisites
 
 - Rust toolchain with `cargo`
-- One of:
-  - `ANTHROPIC_API_KEY` for direct API access
+- **No API key required for standalone mode** – install [Ollama](https://ollama.com) locally and pull a model:
+  ```bash
+  ollama pull llama3.2
+  ```
+  The CLI auto-detects Ollama when no cloud credentials are configured.
+- For cloud models, one of:
+  - `ANTHROPIC_API_KEY` for direct Anthropic API access
   - `claw login` for OAuth-based auth
-- Optional: `ANTHROPIC_BASE_URL` when targeting a proxy or local service
+  - `XAI_API_KEY` for xAI / Grok models
+  - `OPENAI_API_KEY` for OpenAI-compatible models
+- Optional: `ANTHROPIC_BASE_URL` / `OLLAMA_HOST` to override the default endpoint
 
 ## Install / build the workspace
 
@@ -34,6 +41,34 @@ cargo build --workspace
 The CLI binary is available at `rust/target/debug/claw` after a debug build. Make the doctor check above your first post-build step.
 
 ## Quick start
+
+### Standalone (no API key) with Ollama
+
+Start [Ollama](https://ollama.com) and pull a model once:
+
+```bash
+ollama serve          # starts the local server (or use the desktop app)
+ollama pull llama3.2  # or any other model
+```
+
+Then simply run `claw` — it automatically uses Ollama when no cloud credentials are found:
+
+```bash
+cd rust
+./target/debug/claw prompt "summarize this repository"
+# or use a specific Ollama model
+./target/debug/claw --model llama3.2 prompt "review this diff"
+./target/debug/claw --model mistral  "explain src/main.rs"
+```
+
+Supported Ollama model aliases (passed through to Ollama as-is):
+- `llama3`, `mistral`, `phi`, `gemma`, `qwen`
+- Any raw Ollama tag like `llama3.2`, `mistral:7b`, `codellama`, etc.
+
+Use `OLLAMA_HOST` to override the default endpoint (`http://localhost:11434/v1`):
+```bash
+export OLLAMA_HOST="http://remote-host:11434/v1"
+```
 
 ### First-run doctor check
 
@@ -76,6 +111,7 @@ cd rust
 ```bash
 cd rust
 ./target/debug/claw --model sonnet prompt "review this diff"
+./target/debug/claw --model llama3.2 prompt "review this diff"   # Ollama
 ./target/debug/claw --permission-mode read-only prompt "summarize Cargo.toml"
 ./target/debug/claw --permission-mode workspace-write prompt "update README.md"
 ./target/debug/claw --allowedTools read,glob "inspect the runtime crate"
@@ -89,13 +125,32 @@ Supported permission modes:
 
 Model aliases currently supported by the CLI:
 
-- `opus` → `claude-opus-4-6`
-- `sonnet` → `claude-sonnet-4-6`
-- `haiku` → `claude-haiku-4-5-20251213`
+| Alias | Resolves to | Provider |
+|-------|-------------|----------|
+| `opus` | `claude-opus-4-6` | Anthropic |
+| `sonnet` | `claude-sonnet-4-6` | Anthropic |
+| `haiku` | `claude-haiku-4-5-20251213` | Anthropic |
+| `grok` / `grok-3` | `grok-3` | xAI |
+| `grok-mini` / `grok-3-mini` | `grok-3-mini` | xAI |
+| `llama3` | `llama3` | Ollama (local) |
+| `mistral` | `mistral` | Ollama (local) |
+| `phi` | `phi` | Ollama (local) |
+| `gemma` | `gemma` | Ollama (local) |
+| `qwen` | `qwen` | Ollama (local) |
+| any other string | passed through | Ollama (local) when no cloud creds found |
 
 ## Authentication
 
-### API key
+### Standalone (no API key)
+
+No setup required. Install [Ollama](https://ollama.com) and run:
+
+```bash
+ollama pull llama3.2
+claw prompt "hello"
+```
+
+### Anthropic API key
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -107,6 +162,20 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 cd rust
 ./target/debug/claw login
 ./target/debug/claw logout
+```
+
+### xAI / Grok
+
+```bash
+export XAI_API_KEY="xai-..."
+./target/debug/claw --model grok prompt "hello"
+```
+
+### OpenAI-compatible
+
+```bash
+export OPENAI_API_KEY="sk-..."
+./target/debug/claw --model gpt-4o prompt "hello"
 ```
 
 ## Common operational commands

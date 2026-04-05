@@ -55,6 +55,10 @@ use serde_json::json;
 use tools::{GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput};
 
 const DEFAULT_MODEL: &str = "claude-opus-4-6";
+/// The Ollama model used as the default when no cloud provider credentials are
+/// configured.  Ollama must be running locally for this to work.
+const DEFAULT_OLLAMA_MODEL: &str = "llama3.2";
+
 fn max_tokens_for_model(model: &str) -> u32 {
     if model.contains("opus") {
         32_000
@@ -2695,6 +2699,7 @@ impl LiveCli {
         allowed_tools: Option<AllowedToolSet>,
         permission_mode: PermissionMode,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let model = resolve_effective_model(&model);
         let system_prompt = build_system_prompt()?;
         let session_state = Session::new();
         let session = create_managed_session_handle(&session_state.session_id)?;
@@ -5229,7 +5234,7 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
 
 struct AnthropicRuntimeClient {
     runtime: tokio::runtime::Runtime,
-    client: AnthropicClient,
+    client: api::ProviderClient,
     model: String,
     enable_tools: bool,
     emit_output: bool,
@@ -5248,11 +5253,17 @@ impl AnthropicRuntimeClient {
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let provider_kind = api::detect_provider_kind(&model);
+        let anthropic_auth = if provider_kind == api::ProviderKind::Anthropic {
+            Some(resolve_cli_auth_source()?)
+        } else {
+            None
+        };
+        let client = api::ProviderClient::from_model_with_anthropic_auth(&model, anthropic_auth)?
+            .with_prompt_cache(api::PromptCache::new(session_id));
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
-            client: AnthropicClient::from_auth(resolve_cli_auth_source()?)
-                .with_base_url(api::read_base_url())
-                .with_prompt_cache(PromptCache::new(session_id)),
+            client,
             model,
             enable_tools,
             emit_output,
@@ -5271,6 +5282,29 @@ fn resolve_cli_auth_source() -> Result<AuthSource, Box<dyn std::error::Error>> {
         })?;
         Ok(config.oauth().cloned())
     })?)
+}
+
+/// Return the model that should actually be used at runtime.
+///
+/// When the caller did not explicitly pick a cloud model (i.e. the model string
+/// is the built-in default) and no cloud credentials are available, this
+/// function transparently redirects to a locally-running Ollama instance so the
+/// tool works without any API keys.
+fn resolve_effective_model(requested: &str) -> String {
+    if api::detect_provider_kind(requested) == api::ProviderKind::Anthropic
+        && requested == DEFAULT_MODEL
+        && resolve_cli_auth_source().is_err()
+    {
+        eprintln!(
+            "No cloud credentials found (ANTHROPIC_API_KEY, XAI_API_KEY, OPENAI_API_KEY, or \
+             saved OAuth token). \
+             Falling back to Ollama ({DEFAULT_OLLAMA_MODEL}). \
+             Set one of the above environment variables or run `claw login` to use a cloud model."
+        );
+        DEFAULT_OLLAMA_MODEL.to_string()
+    } else {
+        requested.to_string()
+    }
 }
 
 impl ApiClient for AnthropicRuntimeClient {
@@ -6055,7 +6089,7 @@ fn response_to_events(
     Ok(events)
 }
 
-fn push_prompt_cache_record(client: &AnthropicClient, events: &mut Vec<AssistantEvent>) {
+fn push_prompt_cache_record(client: &api::ProviderClient, events: &mut Vec<AssistantEvent>) {
     if let Some(record) = client.take_last_prompt_cache_record() {
         if let Some(event) = prompt_cache_record_to_runtime_event(record) {
             events.push(AssistantEvent::PromptCache(event));

@@ -16,6 +16,7 @@ use super::{preflight_message_request, Provider, ProviderFuture};
 
 pub const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
@@ -53,6 +54,21 @@ impl OpenAiCompatConfig {
             default_base_url: DEFAULT_OPENAI_BASE_URL,
         }
     }
+
+    /// Configuration for a locally-running [Ollama](https://ollama.com) instance.
+    ///
+    /// No API key is required. The base URL defaults to `http://localhost:11434/v1` and
+    /// can be overridden with the `OLLAMA_HOST` environment variable.
+    #[must_use]
+    pub const fn ollama() -> Self {
+        Self {
+            provider_name: "Ollama",
+            api_key_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_HOST",
+            default_base_url: DEFAULT_OLLAMA_BASE_URL,
+        }
+    }
+
     #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
@@ -99,6 +115,15 @@ impl OpenAiCompatClient {
             ));
         };
         Ok(Self::new(api_key, config))
+    }
+
+    /// Create a client that does not send any API key header.
+    ///
+    /// This is intended for providers (like Ollama) that run locally and do not
+    /// require authentication.
+    #[must_use]
+    pub fn without_auth(config: OpenAiCompatConfig) -> Self {
+        Self::new(String::new(), config)
     }
 
     #[must_use]
@@ -193,10 +218,14 @@ impl OpenAiCompatClient {
         request: &MessageRequest,
     ) -> Result<reqwest::Response, ApiError> {
         let request_url = chat_completions_endpoint(&self.base_url);
-        self.http
+        let mut builder = self
+            .http
             .post(&request_url)
-            .header("content-type", "application/json")
-            .bearer_auth(&self.api_key)
+            .header("content-type", "application/json");
+        if !self.api_key.is_empty() {
+            builder = builder.bearer_auth(&self.api_key);
+        }
+        builder
             .json(&build_chat_completion_request(request, self.config()))
             .send()
             .await
@@ -876,6 +905,24 @@ pub fn has_api_key(key: &str) -> bool {
         .ok()
         .and_then(std::convert::identity)
         .is_some()
+}
+
+/// Returns `true` when an Ollama endpoint is explicitly configured via the
+/// `OLLAMA_HOST` environment variable, or when the caller should treat the
+/// default `http://localhost:11434/v1` as a valid backend.
+///
+/// Unlike the cloud providers, Ollama does not require an API key.  This
+/// function always returns `true` because a locally-running Ollama instance
+/// is always a valid (if not necessarily reachable) fallback — connection
+/// failures are surfaced at request time with a clear network error rather
+/// than at startup.  To check whether a custom host was explicitly configured,
+/// use `std::env::var("OLLAMA_HOST").is_ok()` directly.
+#[must_use]
+pub fn has_ollama_endpoint() -> bool {
+    // Ollama is always a viable option: either the user has pointed us at a
+    // specific host or we try the default localhost endpoint.  We do not make
+    // a network probe here – connection failures are reported at request time.
+    true
 }
 
 #[must_use]

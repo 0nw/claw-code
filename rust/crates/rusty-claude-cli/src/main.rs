@@ -5296,9 +5296,10 @@ fn resolve_effective_model(requested: &str) -> String {
         && resolve_cli_auth_source().is_err()
     {
         eprintln!(
-            "No Anthropic credentials found. \
+            "No cloud credentials found (ANTHROPIC_API_KEY, XAI_API_KEY, OPENAI_API_KEY, or \
+             saved OAuth token). \
              Falling back to Ollama ({DEFAULT_OLLAMA_MODEL}). \
-             Run `claw login` or set ANTHROPIC_API_KEY to use a cloud model."
+             Set one of the above environment variables or run `claw login` to use a cloud model."
         );
         DEFAULT_OLLAMA_MODEL.to_string()
     } else {

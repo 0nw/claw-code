@@ -907,17 +907,21 @@ pub fn has_api_key(key: &str) -> bool {
         .is_some()
 }
 
-/// Returns `true` when a custom Ollama endpoint is configured via `OLLAMA_HOST`,
-/// or when the caller wants to treat a locally-running Ollama as always available.
+/// Returns `true` when an Ollama endpoint is explicitly configured via the
+/// `OLLAMA_HOST` environment variable, or when the caller should treat the
+/// default `http://localhost:11434/v1` as a valid backend.
 ///
-/// Unlike the cloud providers, Ollama does not require an API key, so any configured
-/// host (or the default localhost endpoint) qualifies as a valid backend.
+/// Unlike the cloud providers, Ollama does not require an API key.  This
+/// function always returns `true` because a locally-running Ollama instance
+/// is always a valid (if not necessarily reachable) fallback — connection
+/// failures are surfaced at request time with a clear network error rather
+/// than at startup.  To check whether a custom host was explicitly configured,
+/// use `std::env::var("OLLAMA_HOST").is_ok()` directly.
 #[must_use]
 pub fn has_ollama_endpoint() -> bool {
-    // If the caller explicitly pointed us at an Ollama host, honour it.
-    // Otherwise we treat the default localhost endpoint as always present so that
-    // `detect_provider_kind` can fall through to Ollama when no cloud credentials
-    // are configured.
+    // Ollama is always a viable option: either the user has pointed us at a
+    // specific host or we try the default localhost endpoint.  We do not make
+    // a network probe here – connection failures are reported at request time.
     true
 }
 
